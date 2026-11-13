@@ -4,8 +4,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
-HERE = ROOT / "pipelines/go-core-tests"
-OUT = HERE / "coverage-exclusions-go.txt"
+HERE = ROOT / "pipelines/core-tests"
+OUT = HERE / "coverage-exclusions-unused.txt"
 PROD_ROOTS = [ROOT / "src", ROOT / "src-core/src"] + sorted((ROOT / "modules_core").glob("*/src"))
 TEST_ROOTS = [ROOT / "src-test/src"] + sorted(p for p in (ROOT / "modules_core").glob("*/src-test") if p.is_dir())
 CONSUMER_ROOTS = sorted((ROOT / "modules").glob("*/src"))
@@ -77,7 +77,7 @@ def main():
     consumer_texts = [p.read_text(errors="ignore") for r in CONSUMER_ROOTS for p in r.rglob("*.java")]
     kept_ref, consumer_ref = refs(kept_texts), refs(consumer_texts)
     if not consumer_texts:
-        sys.exit("No hay modulos en modules/: este script necesita el workspace con Go y los modulos instalados")
+        sys.exit("No hay modulos en modules/: este script necesita el workspace con los modulos instalados")
     candidates = {}
     for c, d in dec.items():
         if d == "QUITAR":
@@ -86,7 +86,7 @@ def main():
                 candidates[t] = f"solo lo prueba {c}"
     for fqn in prod:
         if any(fqn.startswith(p + ".") for p in PACKAGES):
-            candidates.setdefault(fqn, "paquete sin uso en Go ni en los modulos")
+            candidates.setdefault(fqn, "paquete sin uso en los modulos instalados")
     excluded = {}
     for fqn, why in sorted(candidates.items()):
         if referenced(fqn, consumer_ref) or referenced(fqn, kept_ref):

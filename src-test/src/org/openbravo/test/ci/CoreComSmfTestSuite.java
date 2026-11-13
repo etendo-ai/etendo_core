@@ -1,4 +1,4 @@
-package org.openbravo.test.go;
+package org.openbravo.test.ci;
 
 import org.junit.platform.suite.api.SelectClasses;
 import org.junit.platform.suite.api.Suite;
@@ -35,5 +35,5 @@ import org.junit.platform.suite.api.Suite;
     com.smf.securewebservices.utils.SecureWebServicesUtilsAdditionalTests.class,
     com.smf.securewebservices.utils.SecureWebServicesUtilsTest.class,
 })
-public class GoComSmfTestSuite {
+public class CoreComSmfTestSuite {
 }

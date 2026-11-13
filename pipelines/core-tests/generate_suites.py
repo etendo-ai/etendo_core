@@ -4,8 +4,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
-DECISIONS = ROOT / "pipelines/go-core-tests/decisions.csv"
-OUT_PKG = "org.openbravo.test.go"
+DECISIONS = ROOT / "pipelines/core-tests/decisions.csv"
+OUT_PKG = "org.openbravo.test.ci"
 OUT_DIR = ROOT / "src-test/src" / OUT_PKG.replace(".", "/")
 TEST_ROOTS = [ROOT / "src-test/src"] + sorted(p for p in (ROOT / "modules_core").glob("*/src-test") if (p / "org").is_dir()) + sorted((ROOT / "modules_core").glob("*/src-test/test/groovy"))
 NAME_RE = re.compile(r"^(Test.*|.+[.$]Test.*|.*Tests?)$")
@@ -134,10 +134,10 @@ def main():
     dec = load_decisions()
     idx = index_sources()
     plan = {
-        "GoStandaloneTestSuite": effective("org.openbravo.test.StandaloneTestSuite", idx),
-        "GoCoverageTestSuite": effective("org.openbravo.test.CoverageTestSuite", idx),
-        "GoComSmfTestSuite": effective("com.smf.test.CoreTestSuite", idx),
-        "GoEtendoerpTestSuite": pattern_classes("com.etendoerp.", idx, dec),
+        "CoreStandaloneTestSuite": effective("org.openbravo.test.StandaloneTestSuite", idx),
+        "CoreCoverageTestSuite": effective("org.openbravo.test.CoverageTestSuite", idx),
+        "CoreComSmfTestSuite": effective("com.smf.test.CoreTestSuite", idx),
+        "CoreEtendoerpTestSuite": pattern_classes("com.etendoerp.", idx, dec),
     }
     unknown = sorted({c for v in plan.values() for c in v if c not in dec and not c.endswith("PaymentExecutionActionHandlerTest")})
     extra = []
@@ -145,7 +145,7 @@ def main():
         java, groovy = split_groovy(keep(classes, dec), idx)
         extra += groovy
         print(f"{name}: {write_suite(name, java)} de {len(classes)}")
-    (ROOT / "pipelines/go-core-tests/extra-tests.txt").write_text("".join(c + "\n" for c in extra), encoding="utf-8")
+    (ROOT / "pipelines/core-tests/extra-tests.txt").write_text("".join(c + "\n" for c in extra), encoding="utf-8")
     print("Extra (groovy):", *extra)
     if unknown:
         print("Sin decision (se mantienen):", *unknown, sep="\n  ")

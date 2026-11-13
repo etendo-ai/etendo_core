@@ -1,4 +1,4 @@
-package org.openbravo.test.go;
+package org.openbravo.test.ci;
 
 import org.junit.platform.suite.api.SelectClasses;
 import org.junit.platform.suite.api.Suite;
@@ -218,5 +218,5 @@ import org.junit.platform.suite.api.Suite;
     org.openbravo.portal.PortalEmailBodyTest.class,
     org.openbravo.role.inheritance.RecalculatePermissionsHandlerTest.class,
 })
-public class GoStandaloneTestSuite {
+public class CoreStandaloneTestSuite {
 }

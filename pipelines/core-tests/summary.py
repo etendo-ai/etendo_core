@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 root = Path(sys.argv[1] if len(sys.argv) > 1 else "results")
-print("## Go Core Tests\n")
+print("## Core Tests\n")
 print("| Suite | Tests | Fallos | Errores | Omitidos | Tiempo (min) |")
 print("|---|---|---|---|---|---|")
 failures = []

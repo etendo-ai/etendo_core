@@ -1,4 +1,4 @@
-name: Go Core Tests
+name: Core Tests
 
 on:
   pull_request:
@@ -20,12 +20,12 @@ permissions:
   packages: read
 
 concurrency:
-  group: go-core-tests-${{ github.ref }}
+  group: core-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   core-tests:
-    name: Go Core Tests
+    name: Core Tests
     runs-on: ubuntu-latest
     timeout-minutes: 300
     services:
@@ -97,10 +97,10 @@ jobs:
           org.gradle.jvmargs=-XX:MaxHeapSize=1g -Xmx5g -Dfile.encoding=UTF-8
           EOF
 
-      - name: Generar suites Go
+      - name: Generar suites
         run: |
-          python3 -I pipelines/go-core-tests/generate_suites.py .
-          git diff --exit-code -- src-test/src/org/openbravo/test/go pipelines/go-core-tests/extra-tests.txt || { echo "::error::Las suites Go no coinciden con decisions.csv: regenerarlas y commitearlas"; exit 1; }
+          python3 -I pipelines/core-tests/generate_suites.py .
+          git diff --exit-code -- src-test/src/org/openbravo/test/ci pipelines/core-tests/extra-tests.txt || { echo "::error::Las suites no coinciden con decisions.csv: regenerarlas y commitearlas"; exit 1; }
 
       - name: Instalar Etendo
         run: |
@@ -110,44 +110,44 @@ jobs:
           ./gradlew install --info
           ./gradlew --stop
 
-      - name: GoStandaloneTestSuite
+      - name: CoreStandaloneTestSuite
         id: standalone
         continue-on-error: true
-        run: ./gradlew test --tests org.openbravo.test.go.GoStandaloneTestSuite
+        run: ./gradlew test --tests org.openbravo.test.ci.CoreStandaloneTestSuite
 
       - name: Guardar resultados Standalone
         if: always()
-        run: pipelines/go-core-tests/collect.sh standalone
+        run: pipelines/core-tests/collect.sh standalone
 
-      - name: GoComSmfTestSuite
+      - name: CoreComSmfTestSuite
         id: comsmf
         continue-on-error: true
-        run: ./gradlew test --tests org.openbravo.test.go.GoComSmfTestSuite
+        run: ./gradlew test --tests org.openbravo.test.ci.CoreComSmfTestSuite
 
       - name: Guardar resultados com.smf
         if: always()
-        run: pipelines/go-core-tests/collect.sh comsmf
+        run: pipelines/core-tests/collect.sh comsmf
 
-      - name: GoEtendoerpTestSuite
+      - name: CoreEtendoerpTestSuite
         id: etendoerp
         continue-on-error: true
         run: |
-          args=(--tests org.openbravo.test.go.GoEtendoerpTestSuite)
-          while read -r c; do [ -n "$c" ] && args+=(--tests "$c"); done < pipelines/go-core-tests/extra-tests.txt
+          args=(--tests org.openbravo.test.ci.CoreEtendoerpTestSuite)
+          while read -r c; do [ -n "$c" ] && args+=(--tests "$c"); done < pipelines/core-tests/extra-tests.txt
           ./gradlew test "${args[@]}"
 
       - name: Guardar resultados com.etendoerp
         if: always()
-        run: pipelines/go-core-tests/collect.sh etendoerp
+        run: pipelines/core-tests/collect.sh etendoerp
 
-      - name: GoCoverageTestSuite
+      - name: CoreCoverageTestSuite
         id: coverage
         continue-on-error: true
-        run: ./gradlew test --tests org.openbravo.test.go.GoCoverageTestSuite
+        run: ./gradlew test --tests org.openbravo.test.ci.CoreCoverageTestSuite
 
       - name: Guardar resultados Coverage
         if: always()
-        run: pipelines/go-core-tests/collect.sh coverage
+        run: pipelines/core-tests/collect.sh coverage
 
       - name: Informe de cobertura
         id: jacoco
@@ -165,7 +165,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD: ${{ github.head_ref }}
           PR_BASE: ${{ github.base_ref }}
-        run: pipelines/go-core-tests/sonar-args.sh >> "$GITHUB_OUTPUT"
+        run: pipelines/core-tests/sonar-args.sh >> "$GITHUB_OUTPUT"
 
       - name: Analisis Sonar
         if: always() && steps.sonar.outcome == 'success'
@@ -187,12 +187,12 @@ jobs:
 
       - name: Resumen
         if: always()
-        run: python3 -I pipelines/go-core-tests/summary.py results >> "$GITHUB_STEP_SUMMARY"
+        run: python3 -I pipelines/core-tests/summary.py results >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: go-core-tests-results
+          name: core-tests-results
           path: results/
           retention-days: 14
 

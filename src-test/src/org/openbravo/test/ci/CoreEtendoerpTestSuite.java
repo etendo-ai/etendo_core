@@ -1,4 +1,4 @@
-package org.openbravo.test.go;
+package org.openbravo.test.ci;
 
 import org.junit.platform.suite.api.SelectClasses;
 import org.junit.platform.suite.api.Suite;
@@ -22,5 +22,5 @@ import org.junit.platform.suite.api.Suite;
     com.etendoerp.sequences.transactional.TransactionalSequenceUpdateNextTest.class,
     com.etendoerp.sequences.transactional.TransactionalSequenceUtilsTest.class,
 })
-public class GoEtendoerpTestSuite {
+public class CoreEtendoerpTestSuite {
 }

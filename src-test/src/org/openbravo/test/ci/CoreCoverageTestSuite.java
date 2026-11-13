@@ -1,4 +1,4 @@
-package org.openbravo.test.go;
+package org.openbravo.test.ci;
 
 import org.junit.platform.suite.api.SelectClasses;
 import org.junit.platform.suite.api.Suite;
@@ -139,5 +139,5 @@ import org.junit.platform.suite.api.Suite;
     org.openbravo.dal.xml.XMLTypeConverterTest.class,
     org.openbravo.erpCommon.utility.UtilityPureMethodsTest.class,
 })
-public class GoCoverageTestSuite {
+public class CoreCoverageTestSuite {
 }

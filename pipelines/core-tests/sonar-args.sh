@@ -7,7 +7,7 @@ deprecated=$(grep -rl --include=*.java -A1 '@Deprecated' src modules_core 2>/dev
   if grep -A1 '@Deprecated' "$f" | grep -q 'public class'; then echo "$f"; fi
 done | paste -sd, -)
 [ -n "$deprecated" ] && exclusions="$exclusions,$deprecated"
-coverage=$(cat pipelines/unittests/coverage-exclusions.txt pipelines/go-core-tests/coverage-exclusions-go.txt | sed 's/[[:space:]]*$//' | grep -v '^#' | grep -v '^$' | paste -sd, -)
+coverage=$(cat pipelines/unittests/coverage-exclusions.txt pipelines/core-tests/coverage-exclusions-unused.txt | sed 's/[[:space:]]*$//' | grep -v '^#' | grep -v '^$' | paste -sd, -)
 sources=$(find modules_core -type d -name src -path 'modules_core/*/src' | sort | paste -sd, -)
 sources="${sources:+$sources,}src"
 if [ -n "${PR_NUMBER:-}" ]; then
