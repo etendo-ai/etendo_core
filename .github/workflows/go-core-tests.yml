@@ -68,6 +68,12 @@ jobs:
           nexusPassword=${NEXUS_PASSWORD}
           githubUser=${PACKAGES_USER}
           githubToken=${PACKAGES_TOKEN}
+          test.bbdd.url=
+          test.bbdd.sid=
+          test.bbdd.systemUser=
+          test.bbdd.systemPassword=
+          test.bbdd.user=
+          test.bbdd.password=
           org.gradle.daemon=false
           org.gradle.jvmargs=-Dfile.encoding=UTF-8
           etendoCoreVersion=
