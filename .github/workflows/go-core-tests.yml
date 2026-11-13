@@ -1,0 +1,166 @@
+name: Go Core Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+      - develop
+      - 'epic/**'
+  workflow_dispatch:
+    inputs:
+      plugin_branch:
+        description: Rama de com.etendoerp.gradleplugin
+        required: false
+        default: develop
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: go-core-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: Go Core Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: syspass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LANG: en_US.UTF-8
+      PLUGIN_BRANCH: ${{ inputs.plugin_branch || (github.ref_name == 'main' && 'main' || 'develop') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Clonar gradle plugin
+        run: |
+          git clone --depth 1 --branch "$PLUGIN_BRANCH" https://github.com/etendosoftware/com.etendoerp.gradleplugin.git buildSrc
+          sed -i "s/\(id 'com.etendoerp.gradleplugin[^']*'\) version '\([^']*\)'/\1 \/\/ version '\2'/" build.gradle
+
+      - name: Configurar gradle.properties
+        env:
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+          PACKAGES_USER: ${{ github.actor }}
+          PACKAGES_TOKEN: ${{ secrets.ETENDO_PACKAGES_TOKEN || github.token }}
+        run: |
+          cat > buildSrc/gradle.properties <<EOF
+          nexusUser=${NEXUS_USER}
+          nexusPassword=${NEXUS_PASSWORD}
+          githubUser=${PACKAGES_USER}
+          githubToken=${PACKAGES_TOKEN}
+          org.gradle.daemon=false
+          org.gradle.jvmargs=-Dfile.encoding=UTF-8
+          etendoCoreVersion=
+          EOF
+          cat > gradle.properties <<EOF
+          context.name=etendo
+          bbdd.sid=etendo
+          bbdd.port=5432
+          bbdd.systemUser=postgres
+          bbdd.systemPassword=syspass
+          bbdd.user=tad
+          bbdd.password=tad
+          nexusUser=${NEXUS_USER}
+          nexusPassword=${NEXUS_PASSWORD}
+          githubUser=${PACKAGES_USER}
+          githubToken=${PACKAGES_TOKEN}
+          allow.root=true
+          org.gradle.daemon=false
+          org.gradle.jvmargs=-XX:MaxHeapSize=1g -Xmx5g -Dfile.encoding=UTF-8
+          EOF
+
+      - name: Generar suites Go
+        run: |
+          python3 -I pipelines/go-core-tests/generate_suites.py .
+          git diff --exit-code -- src-test/src/org/openbravo/test/go pipelines/go-core-tests/extra-tests.txt || { echo "::error::Las suites Go no coinciden con decisions.csv: regenerarlas y commitearlas"; exit 1; }
+
+      - name: Instalar Etendo
+        run: |
+          ./gradlew prepareConfig --info
+          ./gradlew setup --info
+          ./gradlew expandModules --info
+          ./gradlew install --info
+          ./gradlew --stop
+
+      - name: GoStandaloneTestSuite
+        id: standalone
+        continue-on-error: true
+        run: ./gradlew test --tests org.openbravo.test.go.GoStandaloneTestSuite
+
+      - name: Guardar resultados Standalone
+        if: always()
+        run: pipelines/go-core-tests/collect.sh standalone
+
+      - name: GoComSmfTestSuite
+        id: comsmf
+        continue-on-error: true
+        run: ./gradlew test --tests org.openbravo.test.go.GoComSmfTestSuite
+
+      - name: Guardar resultados com.smf
+        if: always()
+        run: pipelines/go-core-tests/collect.sh comsmf
+
+      - name: GoEtendoerpTestSuite
+        id: etendoerp
+        continue-on-error: true
+        run: |
+          args=(--tests org.openbravo.test.go.GoEtendoerpTestSuite)
+          while read -r c; do [ -n "$c" ] && args+=(--tests "$c"); done < pipelines/go-core-tests/extra-tests.txt
+          ./gradlew test "${args[@]}"
+
+      - name: Guardar resultados com.etendoerp
+        if: always()
+        run: pipelines/go-core-tests/collect.sh etendoerp
+
+      - name: GoCoverageTestSuite
+        id: coverage
+        continue-on-error: true
+        run: ./gradlew test --tests org.openbravo.test.go.GoCoverageTestSuite
+
+      - name: Guardar resultados Coverage
+        if: always()
+        run: pipelines/go-core-tests/collect.sh coverage
+
+      - name: Resumen
+        if: always()
+        run: python3 -I pipelines/go-core-tests/summary.py results >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go-core-tests-results
+          path: results/
+          retention-days: 14
+
+      - name: Resultado final
+        if: always()
+        run: |
+          failed=""
+          [ "${{ steps.standalone.outcome }}" = "success" ] || failed="$failed Standalone"
+          [ "${{ steps.comsmf.outcome }}" = "success" ] || failed="$failed com.smf"
+          [ "${{ steps.etendoerp.outcome }}" = "success" ] || failed="$failed com.etendoerp"
+          [ "${{ steps.coverage.outcome }}" = "success" ] || failed="$failed Coverage"
+          if [ -n "$failed" ]; then
+            echo "::error::Suites con fallos:$failed"
+            exit 1
+          fi

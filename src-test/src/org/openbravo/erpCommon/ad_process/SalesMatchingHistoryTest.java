@@ -79,7 +79,7 @@ import org.openbravo.scheduling.ProcessLogger;
  * Uses MockitoExtension to enable Mockito mocks and static mocking for dependencies.
  */
 @ExtendWith(MockitoExtension.class)
-class SalesMatchingHistoryTest {
+public class SalesMatchingHistoryTest {
   private static final String SUCCESS = "Success";
   private static final String MATCHED_DAYS_ERROR = "MatchedSalesDaysBackError";
   private SalesMatchingHistory salesMatchingHistory;
