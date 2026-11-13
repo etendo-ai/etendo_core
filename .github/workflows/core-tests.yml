@@ -168,6 +168,7 @@ jobs:
         run: pipelines/core-tests/sonar-args.sh >> "$GITHUB_OUTPUT"
 
       - name: Analisis Sonar
+        id: sonarscan
         if: always() && steps.sonar.outcome == 'success'
         uses: SonarSource/sonarqube-scan-action@v5
         env:
@@ -204,7 +205,8 @@ jobs:
           [ "${{ steps.comsmf.outcome }}" = "success" ] || failed="$failed com.smf"
           [ "${{ steps.etendoerp.outcome }}" = "success" ] || failed="$failed com.etendoerp"
           [ "${{ steps.coverage.outcome }}" = "success" ] || failed="$failed Coverage"
+          [ "${{ steps.sonarscan.outcome }}" = "success" ] || failed="$failed Sonar"
           if [ -n "$failed" ]; then
-            echo "::error::Suites con fallos:$failed"
+            echo "::error::Pasos con fallos:$failed"
             exit 1
           fi

@@ -8,7 +8,7 @@ deprecated=$(grep -rl --include=*.java -A1 '@Deprecated' src modules_core 2>/dev
 done | paste -sd, -)
 [ -n "$deprecated" ] && exclusions="$exclusions,$deprecated"
 coverage=$(cat pipelines/unittests/coverage-exclusions.txt pipelines/core-tests/coverage-exclusions-unused.txt | sed 's/[[:space:]]*$//' | grep -v '^#' | grep -v '^$' | paste -sd, -)
-sources=$(find modules_core -type d -name src -path 'modules_core/*/src' | sort | paste -sd, -)
+sources=$(find modules_core -mindepth 2 -maxdepth 2 -type d -name src | sort | paste -sd, -)
 sources="${sources:+$sources,}src"
 if [ -n "${PR_NUMBER:-}" ]; then
   branch_args="-Dsonar.pullrequest.key=$PR_NUMBER -Dsonar.pullrequest.branch=$PR_HEAD -Dsonar.pullrequest.base=$PR_BASE"
