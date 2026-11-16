@@ -35,7 +35,9 @@ clone() {
   local url name branch
   url="$(to_https "$1")"
   name="$(basename "$1" .git)"
-  if ! branch="$(pick_branch "$url")"; then
+  if [ -n "${2:-}" ]; then
+    branch="$2"
+  elif ! branch="$(pick_branch "$url")"; then
     echo "::error::$name: ninguna de las ramas (${candidates[*]}) existe"
     return 1
   fi
@@ -45,7 +47,7 @@ clone() {
 
 mkdir -p modules
 : > modules-cloned.tsv
-clone "$main_repo"
+clone "$main_repo" "${MAIN_MODULE_BRANCH:-main}"
 
 list="modules/com.etendoerp.go/jenkinsExtraModules.txt"
 [ -f "$list" ] || { echo "::error::No existe $list"; exit 1; }
