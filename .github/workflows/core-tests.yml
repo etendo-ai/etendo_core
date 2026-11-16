@@ -53,10 +53,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
-
       - name: Clonar gradle plugin
         run: |
           git clone --depth 1 --branch "$PLUGIN_BRANCH" https://github.com/etendosoftware/com.etendoerp.gradleplugin.git buildSrc
