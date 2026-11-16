@@ -23,7 +23,7 @@ to_https() {
 pick_branch() {
   local url="$1"
   for b in "${candidates[@]}"; do
-    if git ls-remote --exit-code --heads "$url" "$b" >/dev/null 2>&1; then
+    if git ls-remote --exit-code --heads "$url" "$b" </dev/null >/dev/null 2>&1; then
       echo "$b"
       return 0
     fi
@@ -39,7 +39,7 @@ clone() {
     echo "::error::$name: ninguna de las ramas (${candidates[*]}) existe"
     return 1
   fi
-  git clone -q --depth 1 --branch "$branch" "$url" "modules/$name"
+  git clone -q --depth 1 --branch "$branch" "$url" "modules/$name" </dev/null
   printf '%s\t%s\t%s\n' "$name" "$branch" "$(git -C "modules/$name" rev-parse --short HEAD)" | tee -a modules-cloned.tsv
 }
 
@@ -50,10 +50,12 @@ clone "$main_repo"
 list="modules/com.etendoerp.go/jenkinsExtraModules.txt"
 [ -f "$list" ] || { echo "::error::No existe $list"; exit 1; }
 
+mapfile -t urls < <(tr ',' '\n' < "$list" | sed 's/[[:space:]]//g' | grep -v '^$')
+echo "Módulos en $list: ${#urls[@]}"
+
 failed=0
-while read -r url; do
-  [ -n "$url" ] || continue
+for url in "${urls[@]}"; do
   clone "$url" || failed=1
-done < <(tr ',' '\n' < "$list" | sed 's/[[:space:]]//g')
+done
 
 exit "$failed"

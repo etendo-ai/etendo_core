@@ -103,8 +103,8 @@ jobs:
         env:
           NEXUS_USER: ${{ secrets.NEXUS_USER }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
-          PACKAGES_USER: ${{ github.actor }}
-          PACKAGES_TOKEN: ${{ secrets.ETENDO_PACKAGES_TOKEN || github.token }}
+          PACKAGES_USER: ${{ secrets.ETENDO_PACKAGES_TOKEN && github.actor || 'etendobot' }}
+          PACKAGES_TOKEN: ${{ secrets.ETENDO_PACKAGES_TOKEN || secrets.ETENDOBOT_TOKEN }}
         run: |
           cat > buildSrc/gradle.properties <<EOF
           nexusUser=${NEXUS_USER}
