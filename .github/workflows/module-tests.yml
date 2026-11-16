@@ -45,6 +45,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  token-check:
+    name: Token check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Permisos de los tokens
+        env:
+          ETENDOBOT_TOKEN: ${{ secrets.ETENDOBOT_TOKEN }}
+          GH_DEFAULT_TOKEN: ${{ github.token }}
+        run: |
+          pkg1="https://maven.pkg.github.com/etendosoftware/com.etendoerp.localization.spain.extensions/com/etendoerp/localization.spain.extensions/maven-metadata.xml"
+          pkg2="https://maven.pkg.github.com/etendosoftware/com.etendoerp.gradleplugin/com/etendoerp/testing/gradleplugin/com.etendoerp.testing.gradleplugin.gradle.plugin/maven-metadata.xml"
+          for name in ETENDOBOT_TOKEN GH_DEFAULT_TOKEN; do
+            t="${!name}"
+            echo "== $name"
+            if [ -z "$t" ]; then echo "vacío"; continue; fi
+            case "$t" in ghp_*) echo "tipo: classic";; github_pat_*) echo "tipo: fine-grained";; ghs_*) echo "tipo: token de app/Actions";; gho_*) echo "tipo: OAuth";; *) echo "tipo: desconocido";; esac
+            curl -s -o /dev/null -D - -H "Authorization: token $t" https://api.github.com/user | grep -iE '^(x-oauth-scopes|x-accepted-oauth-scopes|HTTP/)' || true
+            echo "login: $(curl -s -H "Authorization: token $t" https://api.github.com/user | python3 -c 'import json,sys;print(json.load(sys.stdin).get("login"))' 2>/dev/null)"
+            for u in "$pkg1" "$pkg2"; do
+              echo "paquete $(basename "$(dirname "$u")"): HTTP $(curl -s -o /dev/null -w '%{http_code}' -u "x:$t" "$u")"
+            done
+          done
+
   module-tests:
     name: Module Tests (${{ matrix.group }})
     runs-on: ubuntu-latest
