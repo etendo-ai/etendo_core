@@ -12,7 +12,7 @@ else
     m="$(basename "$d")"
     [ "$m" = "$main_module" ] && continue
     [ -d "$d/src-test" ] || continue
-    find "$d/src-test" \( -name '*.java' -o -name '*.groovy' \) | grep -q . || continue
+    [ -n "$(find "$d/src-test" \( -name '*.java' -o -name '*.groovy' \) -print -quit)" ] || continue
     args+=(--tests "${m}.*")
   done
 fi
