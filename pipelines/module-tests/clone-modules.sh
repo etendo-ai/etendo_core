@@ -3,7 +3,7 @@ set -euo pipefail
 
 main_repo="${MAIN_MODULE_REPO:-https://github.com/etendo-ai/com.etendoerp.go.git}"
 candidates=()
-for b in "${HEAD_BRANCH:-}" "${BASE_BRANCH:-}" "${FALLBACK_BRANCH:-}" main; do
+for b in "${MODULES_BRANCH:-}" epic/ETP-3504 main; do
   [ -n "$b" ] && [[ ! " ${candidates[*]} " =~ " $b " ]] && candidates+=("$b")
 done
 

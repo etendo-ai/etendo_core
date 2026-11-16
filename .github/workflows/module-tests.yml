@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       modules_branch:
-        description: Rama del módulo principal y sus módulos
+        description: Rama de los módulos (por defecto epic/ETP-3504, si no existe main)
         required: false
       plugin_branch:
         description: Rama de com.etendoerp.gradleplugin
@@ -64,9 +64,7 @@ jobs:
     env:
       LANG: en_US.UTF-8
       PLUGIN_BRANCH: ${{ inputs.plugin_branch || (github.ref_name == 'main' && 'main' || 'develop') }}
-      HEAD_BRANCH: ${{ inputs.modules_branch || github.head_ref || github.ref_name }}
-      BASE_BRANCH: ${{ github.base_ref || github.ref_name }}
-      FALLBACK_BRANCH: epic/ETP-3504
+      MODULES_BRANCH: ${{ inputs.modules_branch }}
     steps:
       - uses: actions/checkout@v4
 
