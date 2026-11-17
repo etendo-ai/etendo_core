@@ -1,0 +1,202 @@
+name: Module Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '**'
+      - '!pipelines/**'
+      - '!.github/**'
+      - '!**/*.md'
+      - 'pipelines/module-tests/**'
+      - '.github/workflows/module-tests.yml'
+  push:
+    branches:
+      - main
+      - develop
+      - 'epic/**'
+    paths:
+      - '**'
+      - '!pipelines/**'
+      - '!.github/**'
+      - '!**/*.md'
+      - 'pipelines/module-tests/**'
+      - '.github/workflows/module-tests.yml'
+  workflow_dispatch:
+    inputs:
+      main_module_branch:
+        description: Rama de com.etendoerp.go
+        required: false
+        default: main
+      modules_branch:
+        description: Rama de los módulos (por defecto epic/ETP-3504, si no existe main)
+        required: false
+      plugin_branch:
+        description: Rama de com.etendoerp.gradleplugin
+        required: false
+        default: develop
+
+permissions:
+  contents: read
+  packages: read
+  checks: write
+
+concurrency:
+  group: module-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  module-tests:
+    name: Module Tests (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [etendo, modules]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: syspass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LANG: en_US.UTF-8
+      PLUGIN_BRANCH: ${{ inputs.plugin_branch || (github.ref_name == 'main' && 'main' || 'develop') }}
+      MAIN_MODULE_BRANCH: ${{ inputs.main_module_branch || 'main' }}
+      MODULES_BRANCH: ${{ inputs.modules_branch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6.4.1
+        with:
+          gradle-home-cache-excludes: |
+            caches/modules-2/files-2.1/com.etendoerp*
+            caches/modules-2/files-2.1/com.smf*
+            caches/modules-2/files-2.1/org.openbravo*
+            caches/modules-2/files-2.1/com.aeat*
+            caches/jars-*
+            caches/transforms-*
+            caches/*/transforms
+
+      - name: Configurar SSH de Bitbucket
+        env:
+          BITBUCKET_SSH_KEY: ${{ secrets.BITBUCKET_SSH_KEY }}
+        run: |
+          if [ -z "$BITBUCKET_SSH_KEY" ]; then
+            echo "::error::Falta el secreto BITBUCKET_SSH_KEY"
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$BITBUCKET_SSH_KEY" > ~/.ssh/id_bitbucket
+          chmod 600 ~/.ssh/id_bitbucket
+          ssh-keyscan -t ed25519,rsa bitbucket.org ssh.bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null
+          printf 'Host bitbucket.org ssh.bitbucket.org\n  IdentityFile ~/.ssh/id_bitbucket\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+
+      - name: Clonar módulos
+        env:
+          GH_TOKEN: ${{ secrets.ETENDOBOT_TOKEN }}
+        run: pipelines/module-tests/clone-modules.sh
+
+      - name: Clonar gradle plugin
+        run: |
+          git clone --depth 1 --branch "$PLUGIN_BRANCH" https://github.com/etendosoftware/com.etendoerp.gradleplugin.git buildSrc
+          sed -i "s/\(id 'com.etendoerp.gradleplugin[^']*'\) version '\([^']*\)'/\1 \/\/ version '\2'/" build.gradle
+
+      - name: Configurar gradle.properties
+        env:
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+          PACKAGES_USER: ${{ secrets.ETENDO_PACKAGES_TOKEN && github.actor || 'etendobot' }}
+          PACKAGES_TOKEN: ${{ secrets.ETENDO_PACKAGES_TOKEN || secrets.ETENDOBOT_TOKEN }}
+        run: |
+          cat > buildSrc/gradle.properties <<EOF
+          nexusUser=${NEXUS_USER}
+          nexusPassword=${NEXUS_PASSWORD}
+          githubUser=${PACKAGES_USER}
+          githubToken=${PACKAGES_TOKEN}
+          test.bbdd.url=
+          test.bbdd.sid=
+          test.bbdd.systemUser=
+          test.bbdd.systemPassword=
+          test.bbdd.user=
+          test.bbdd.password=
+          org.gradle.daemon=false
+          org.gradle.jvmargs=-Dfile.encoding=UTF-8
+          etendoCoreVersion=
+          EOF
+          cat > gradle.properties <<EOF
+          context.name=etendo
+          bbdd.sid=etendo
+          bbdd.port=5432
+          bbdd.systemUser=postgres
+          bbdd.systemPassword=syspass
+          bbdd.user=tad
+          bbdd.password=tad
+          nexusUser=${NEXUS_USER}
+          nexusPassword=${NEXUS_PASSWORD}
+          githubUser=${PACKAGES_USER}
+          githubToken=${PACKAGES_TOKEN}
+          ETENDO_HOST=http://localhost:8080/etendo
+          etendo.go.email.provider.enabled=true
+          etendo.go.email.provider.baseUrl=http://127.0.0.1:8025/send
+          etendo.go.email.provider.apiKey=ci-only-secret
+          etendo.go.app.baseUrl=http://localhost:4173
+          etendo.go.runtime.environment=local
+          allow.root=true
+          org.gradle.daemon=false
+          org.gradle.jvmargs=-XX:MaxHeapSize=1g -Xmx5g -Dfile.encoding=UTF-8
+          EOF
+
+      - name: Instalar Etendo
+        run: |
+          ./gradlew prepareConfig --info
+          ./gradlew setup --info
+          ./gradlew expandModules --info
+          ./gradlew install --info
+          ./gradlew --stop
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: pipelines/module-tests/run-tests.sh ${{ matrix.group }}
+
+      - name: Resumen
+        if: always()
+        run: python3 -I pipelines/module-tests/summary.py results ${{ matrix.group }} >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: mikepenz/action-junit-report@v6.7.1
+        if: always()
+        continue-on-error: true
+        with:
+          report_paths: results/xml/TEST-*.xml
+          check_name: Module Tests report (${{ matrix.group }})
+          job_summary: false
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: module-tests-${{ matrix.group }}
+          path: |
+            results/
+            modules-cloned.tsv
+          retention-days: 14
+
+      - name: Resultado final
+        if: always()
+        run: |
+          if [ "${{ steps.tests.outcome }}" != "success" ]; then
+            echo "::error::Fallaron tests del grupo ${{ matrix.group }}"
+            exit 1
+          fi
