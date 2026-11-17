@@ -67,6 +67,19 @@ if os.path.exists("modules-cloned.tsv"):
     print()
     print("</details>")
 
+excluded_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "excluded-tests.txt")
+if os.path.exists(excluded_file):
+    with open(excluded_file) as f:
+        excluded = [line.rstrip("\n").split("\t", 1) for line in f if line.strip()]
+    if excluded:
+        print()
+        print(f"> [!WARNING]\n> {len(excluded)} patrón(es) de tests excluidos provisoriamente (`pipelines/module-tests/excluded-tests.txt`)")
+        print()
+        print("| Excluido | Motivo |")
+        print("|---|---|")
+        for parts in excluded:
+            print(f"| `{parts[0]}` | {parts[1] if len(parts) > 1 else ''} |")
+
 if failed:
     print()
     print("<details><summary>Tests fallidos</summary>")

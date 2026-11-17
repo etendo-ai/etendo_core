@@ -22,8 +22,22 @@ if [ "${#args[@]}" -eq 0 ]; then
   exit 1
 fi
 
+excluded_file="$(dirname "$0")/excluded-tests.txt"
+init_script="$(mktemp --suffix=.gradle)"
+{
+  echo 'allprojects { tasks.withType(Test).configureEach { filter {'
+  echo '  failOnNoMatchingTests = false'
+  if [ -f "$excluded_file" ]; then
+    cut -f1 "$excluded_file" | grep -v '^[[:space:]]*$' | while read -r pattern; do
+      echo "  excludeTestsMatching '${pattern}'"
+    done
+  fi
+  echo '} } }'
+} > "$init_script"
+cat "$init_script"
+
 printf '%s\n' "${args[@]}" | grep -v -- '--tests'
-./gradlew test "${args[@]}" --continue
+./gradlew test "${args[@]}" -I "$init_script" --continue
 status=$?
 
 mkdir -p results

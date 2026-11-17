@@ -1,0 +1,1 @@
+com.etendoerp.sif.general.battery.RectificativeInvoiceNoSifTest	Falta la secuencia de C_BPartner.EM_Etgo_Identifier (com.etendoerp.go) en la org ESP
