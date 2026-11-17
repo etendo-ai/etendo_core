@@ -39,7 +39,7 @@ jobs:
       MAIN_MODULE_BRANCH: ${{ inputs.main_module_branch || 'main' }}
       MODULES_BRANCH: ''
       LOCALENV_REF: ${{ inputs.localenv_ref || 'main' }}
-      LOCALENV_PUSH_FLAG: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish && '0' || '1' }}
+      LOCALENV_PUSH_FLAG: '0'
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +50,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6.4.1
         with:
+          cache-read-only: false
           gradle-home-cache-excludes: |
             caches/modules-2/files-2.1/com.etendoerp*
             caches/modules-2/files-2.1/com.smf*
