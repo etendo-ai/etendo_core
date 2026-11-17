@@ -39,7 +39,7 @@ jobs:
       MAIN_MODULE_BRANCH: ${{ inputs.main_module_branch || 'main' }}
       MODULES_BRANCH: ''
       LOCALENV_REF: ${{ inputs.localenv_ref || 'main' }}
-      LOCALENV_PUSH_FLAG: ${{ inputs.publish == false && '0' || '1' }}
+      LOCALENV_PUSH_FLAG: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish && '0' || '1' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -149,6 +149,7 @@ jobs:
           LOCALENV_PG_OPTS: -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c shared_buffers=512MB -c effective_cache_size=1536MB -c maintenance_work_mem=256MB -c work_mem=16MB
         run: |
           export LOCALENV_PUSH="$LOCALENV_PUSH_FLAG"
+          echo "LOCALENV_PUSH=$LOCALENV_PUSH"
           export LOCALENV_REMOTE_CURL_ARGS="--user $LOCALENV_S3_KEY:$LOCALENV_S3_SECRET --aws-sigv4 aws:amz:$LOCALENV_S3_REGION:s3"
           LE="$RUNNER_TEMP/etendo-localenv/bin/local-env.sh"
           curl --version | head -1
