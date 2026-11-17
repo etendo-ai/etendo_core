@@ -1,0 +1,202 @@
+name: Module Tests localenv
+
+on:
+  push:
+    branches:
+      - feature/ETP-6301-localenv
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publicar el snapshot en el cache compartido
+        type: boolean
+        default: true
+      main_module_branch:
+        description: Rama de com.etendoerp.go
+        required: false
+        default: main
+      localenv_ref:
+        description: Rama de etendo-localenv
+        required: false
+        default: main
+
+permissions:
+  contents: read
+  packages: read
+  checks: write
+
+concurrency:
+  group: module-tests-localenv-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  module-tests-localenv:
+    name: Module Tests localenv (etendo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      LANG: en_US.UTF-8
+      PLUGIN_BRANCH: develop
+      MAIN_MODULE_BRANCH: ${{ inputs.main_module_branch || 'main' }}
+      MODULES_BRANCH: ''
+      LOCALENV_REF: ${{ inputs.localenv_ref || 'main' }}
+      LOCALENV_PUSH_FLAG: ${{ inputs.publish == false && '0' || '1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6.4.1
+        with:
+          gradle-home-cache-excludes: |
+            caches/modules-2/files-2.1/com.etendoerp*
+            caches/modules-2/files-2.1/com.smf*
+            caches/modules-2/files-2.1/org.openbravo*
+            caches/modules-2/files-2.1/com.aeat*
+            caches/jars-*
+            caches/transforms-*
+            caches/*/transforms
+
+      - name: Configurar SSH
+        env:
+          BITBUCKET_SSH_KEY: ${{ secrets.BITBUCKET_SSH_KEY }}
+          LOCALENV_DEPLOY_KEY: ${{ secrets.LOCALENV_DEPLOY_KEY }}
+        run: |
+          for v in BITBUCKET_SSH_KEY LOCALENV_DEPLOY_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Falta el secreto $v"
+              exit 1
+            fi
+          done
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$BITBUCKET_SSH_KEY" > ~/.ssh/id_bitbucket
+          printf '%s\n' "$LOCALENV_DEPLOY_KEY" > ~/.ssh/id_localenv
+          chmod 600 ~/.ssh/id_bitbucket ~/.ssh/id_localenv
+          ssh-keyscan -t ed25519,rsa bitbucket.org ssh.bitbucket.org github.com >> ~/.ssh/known_hosts 2>/dev/null
+          printf 'Host bitbucket.org ssh.bitbucket.org\n  IdentityFile ~/.ssh/id_bitbucket\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+
+      - name: Clonar etendo-localenv
+        run: |
+          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_localenv -o IdentitiesOnly=yes" \
+            git clone --depth 1 --branch "$LOCALENV_REF" git@github.com:etendosoftware/etendo-localenv.git "$RUNNER_TEMP/etendo-localenv"
+          git -C "$RUNNER_TEMP/etendo-localenv" log -1 --format='etendo-localenv %h %s'
+
+      - name: Clonar módulos
+        env:
+          GH_TOKEN: ${{ secrets.ETENDOBOT_TOKEN }}
+        run: pipelines/module-tests/clone-modules.sh
+
+      - name: Clonar gradle plugin
+        run: |
+          git clone --depth 1 --branch "$PLUGIN_BRANCH" https://github.com/etendosoftware/com.etendoerp.gradleplugin.git buildSrc
+          sed -i "s/\(id 'com.etendoerp.gradleplugin[^']*'\) version '\([^']*\)'/\1 \/\/ version '\2'/" build.gradle
+
+      - name: Configurar gradle.properties
+        env:
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+          PACKAGES_USER: ${{ secrets.ETENDO_PACKAGES_TOKEN && github.actor || 'etendobot' }}
+          PACKAGES_TOKEN: ${{ secrets.ETENDO_PACKAGES_TOKEN || secrets.ETENDOBOT_TOKEN }}
+        run: |
+          cat > buildSrc/gradle.properties <<EOF
+          nexusUser=${NEXUS_USER}
+          nexusPassword=${NEXUS_PASSWORD}
+          githubUser=${PACKAGES_USER}
+          githubToken=${PACKAGES_TOKEN}
+          test.bbdd.url=
+          test.bbdd.sid=
+          test.bbdd.systemUser=
+          test.bbdd.systemPassword=
+          test.bbdd.user=
+          test.bbdd.password=
+          org.gradle.daemon=false
+          org.gradle.jvmargs=-Dfile.encoding=UTF-8
+          etendoCoreVersion=
+          EOF
+          cat > gradle.properties <<EOF
+          context.name=etendo
+          nexusUser=${NEXUS_USER}
+          nexusPassword=${NEXUS_PASSWORD}
+          githubUser=${PACKAGES_USER}
+          githubToken=${PACKAGES_TOKEN}
+          ETENDO_HOST=http://localhost:8080/etendo
+          etendo.go.email.provider.enabled=true
+          etendo.go.email.provider.baseUrl=http://127.0.0.1:8025/send
+          etendo.go.email.provider.apiKey=ci-only-secret
+          etendo.go.app.baseUrl=http://localhost:4173
+          etendo.go.runtime.environment=local
+          org.gradle.daemon=false
+          org.gradle.jvmargs=-XX:MaxHeapSize=1g -Xmx5g -Dfile.encoding=UTF-8
+          systemProp.org.gradle.internal.repository.max.retries=10
+          systemProp.org.gradle.internal.repository.initial.backoff=2000
+          EOF
+
+      - name: prepareConfig
+        run: ./gradlew prepareConfig --info
+
+      - name: Base y build con local-env
+        env:
+          LOCALENV_CACHE: ${{ runner.temp }}/localenv-cache
+          LOCALENV_REMOTE: https://etendo-localenv-cache.ams3.digitaloceanspaces.com/etendo-localenv
+          LOCALENV_S3_REGION: ams3
+          LOCALENV_S3_KEY: ${{ env.LOCALENV_PUSH_FLAG == '1' && secrets.LOCALENV_S3_RW_KEY || secrets.LOCALENV_S3_RO_KEY }}
+          LOCALENV_S3_SECRET: ${{ env.LOCALENV_PUSH_FLAG == '1' && secrets.LOCALENV_S3_RW_SECRET || secrets.LOCALENV_S3_RO_SECRET }}
+          LOCALENV_UPDATE_CHECK_SECS: '0'
+          LOCALENV_NEAREST_FALLBACK: install
+          ETENDO_GO_SPA: '0'
+          LOCALENV_PG_OPTS: -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c shared_buffers=512MB -c effective_cache_size=1536MB -c maintenance_work_mem=256MB -c work_mem=16MB
+        run: |
+          export LOCALENV_PUSH="$LOCALENV_PUSH_FLAG"
+          export LOCALENV_REMOTE_CURL_ARGS="--user $LOCALENV_S3_KEY:$LOCALENV_S3_SECRET --aws-sigv4 aws:amz:$LOCALENV_S3_REGION:s3"
+          LE="$RUNNER_TEMP/etendo-localenv/bin/local-env.sh"
+          curl --version | head -1
+          start=$SECONDS
+          "$LE" up --fresh --no-tomcat
+          echo "local-env up: $((SECONDS - start)) s"
+          if [ "$LOCALENV_PUSH" = 1 ]; then
+            start=$SECONDS
+            while :; do
+              out="$("$LE" cache sync 2>&1)"; echo "$out"
+              case "$out" in *"sync already running"*) sleep 5 ;; *) break ;; esac
+            done
+            echo "local-env cache sync: $((SECONDS - start)) s"
+          fi
+          grep '^bbdd\.' gradle.properties
+          ./gradlew --stop
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: pipelines/module-tests/run-tests.sh etendo
+
+      - name: Resumen
+        if: always()
+        run: python3 -I pipelines/module-tests/summary.py results etendo >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: mikepenz/action-junit-report@v6.7.1
+        if: always()
+        continue-on-error: true
+        with:
+          report_paths: results/xml/TEST-*.xml
+          check_name: Module Tests localenv report (etendo)
+          job_summary: false
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: module-tests-localenv-etendo
+          path: |
+            results/
+            modules-cloned.tsv
+            build/local-env/*.log
+          retention-days: 14
+
+      - name: Resultado final
+        if: always()
+        run: |
+          if [ "${{ steps.tests.outcome }}" != "success" ]; then
+            echo "::error::Fallaron tests del grupo etendo"
+            exit 1
+          fi
