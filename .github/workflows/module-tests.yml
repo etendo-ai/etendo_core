@@ -157,6 +157,8 @@ jobs:
           allow.root=true
           org.gradle.daemon=false
           org.gradle.jvmargs=-XX:MaxHeapSize=1g -Xmx5g -Dfile.encoding=UTF-8
+          systemProp.org.gradle.internal.repository.max.retries=10
+          systemProp.org.gradle.internal.repository.initial.backoff=2000
           EOF
 
       - name: Instalar Etendo
