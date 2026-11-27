@@ -10,6 +10,9 @@ name: Etendo GO stress
 # (building the environment, as in the go pipeline) and DD_API_KEY (Datadog, EU site).
 
 on:
+  # TEMPORARY (ETP-6476): validates the connection limits from the PR branch. Remove before merging.
+  push:
+    branches: [feature/ETP-6476]
   schedule:
     # Saturday 03:00 UTC: the results are in Datadog on Monday.
     - cron: '0 3 * * 6'
@@ -75,6 +78,26 @@ jobs:
           localenv_s3_key: ${{ secrets.LOCALENV_CACHE_RO_KEY }}
           localenv_s3_secret: ${{ secrets.LOCALENV_CACHE_RO_SECRET }}
 
+      # Same limits as production (100 connections per Tomcat pool, max_connections 450 on RDS):
+      # with local-env's defaults (pool 10000, max_connections 200) the high levels fail on
+      # connections instead of measuring the application.
+      - name: Align the connection limits with production
+        working-directory: etendo_core
+        env:
+          LE: ${{ github.workspace }}/etendo-localenv/bin/local-env.sh
+          LOCALENV_CACHE: ${{ runner.temp }}/localenv-cache
+          LOCALENV_UPDATE_CHECK_SECS: '0'
+          LOCALENV_PG_OPTS: -c max_connections=450
+        run: |
+          mapfile -t props < <(find config build WebContent -name Openbravo.properties -path '*/WEB-INF/*' 2>/dev/null)
+          for f in config/Openbravo.properties "${props[@]}"; do
+            sed -i 's/^db\.pool\.maxActive=.*/db.pool.maxActive=100/' "$f"
+            echo "$f: $(grep '^db.pool.maxActive=' "$f")"
+          done
+          "$LE" stop --pg
+          "$LE" start --pg
+          pgrep -a postgres | grep -o 'max_connections=[0-9]*' | sort -u
+
       - name: Start Tomcat
         working-directory: etendo_core
         env:
@@ -101,7 +124,7 @@ jobs:
         env:
           STRESS_BASE: http://localhost:8080/etendo
           STRESS_OUT: ${{ runner.temp }}/stress-results
-          STRESS_SUITES: ${{ inputs.suites || 'read,write,confirm,onboarding,master,journey' }}
+          STRESS_SUITES: ${{ github.event_name == 'push' && 'write' || inputs.suites || 'read,write,confirm,onboarding,master,journey' }}
         run: bash stress-src/pipelines/stress/run.sh
 
       - name: Send the results to Datadog
