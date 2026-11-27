@@ -10,6 +10,10 @@ name: Etendo GO stress
 # (building the environment, as in the go pipeline) and DD_API_KEY (Datadog, EU site).
 
 on:
+  # TEMPORARY (ETP-6476): validates the workflow from its PR branch with light read and write
+  # levels. Remove before merging.
+  push:
+    branches: [feature/ETP-6476]
   schedule:
     # Saturday 03:00 UTC: the results are in Datadog on Monday.
     - cron: '0 3 * * 6'
@@ -101,7 +105,8 @@ jobs:
         env:
           STRESS_BASE: http://localhost:8080/etendo
           STRESS_OUT: ${{ runner.temp }}/stress-results
-          STRESS_SUITES: ${{ inputs.suites || 'read,write,confirm,onboarding,master,journey' }}
+          STRESS_SUITES: ${{ github.event_name == 'push' && 'read,write' || inputs.suites || 'read,write,confirm,onboarding,master,journey' }}
+          STRESS_LEVELS: ${{ github.event_name == 'push' && '5,10' || '' }}
         run: bash stress-src/pipelines/stress/run.sh
 
       - name: Send the results to Datadog

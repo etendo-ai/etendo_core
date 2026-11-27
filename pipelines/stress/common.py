@@ -28,7 +28,7 @@ TIMEOUT = aiohttp.ClientTimeout(total=20)
 
 def levels(var, default):
     """Concurrency levels from a comma-separated environment variable."""
-    return [int(x) for x in os.environ.get(var, default).split(",") if x.strip()]
+    return [int(x) for x in (os.environ.get(var) or default).split(",") if x.strip()]
 
 
 def pct(values, p):
