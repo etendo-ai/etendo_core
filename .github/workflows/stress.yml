@@ -10,9 +10,6 @@ name: Etendo GO stress
 # (building the environment, as in the go pipeline) and DD_API_KEY (Datadog, EU site).
 
 on:
-  # TEMPORARY (ETP-6476): validates the workflow from its PR branch. Remove before merging.
-  push:
-    branches: [feature/ETP-6476]
   schedule:
     # Saturday 03:00 UTC: the results are in Datadog on Monday.
     - cron: '0 3 * * 6'
