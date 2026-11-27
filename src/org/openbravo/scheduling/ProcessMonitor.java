@@ -66,6 +66,14 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
 
   public static final String KEY = "org.openbravo.scheduling.ProcessMonitor.KEY";
 
+  private static final int CONNECTION_VALIDATION_TIMEOUT_SECONDS = 5;
+
+  /** A database action that can be retried with a new connection. */
+  @FunctionalInterface
+  interface DbAction {
+    void run() throws ServletException;
+  }
+
   private String name;
 
   private SchedulerContext context;
@@ -127,7 +135,7 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
       return;
     }
     try {
-      log.debug("jobToBeExecuted for process {}}",
+      log.debug("jobToBeExecuted for process {}",
           jec.getTrigger().getJobDataMap().getString(Process.PROCESS_NAME));
     } catch (Exception ignore) {
       // ignore: exception while trying to log
@@ -159,14 +167,17 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
       return;
     }
     try {
-      log.debug("jobToBeExecuted for process {}}",
+      log.debug("jobWasExecuted for process {}",
           jec.getTrigger().getJobDataMap().getString(Process.PROCESS_NAME));
     } catch (Exception ignore) {
       // ignore: exception while trying to log
     }
     final ProcessContext ctx = bundle.getContext();
+    String executionId = null;
     try {
-      final String executionId = (String) jec.get(EXECUTION_ID);
+      SessionInfo.discardSessionConnectionIfInvalid(CONNECTION_VALIDATION_TIMEOUT_SECONDS);
+      executionId = (String) jec.get(EXECUTION_ID);
+      final String runId = executionId;
       Job jobInstance = jec.getJobInstance();
 
       String executionStatus;
@@ -179,16 +190,19 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
         executionStatus = SUCCESS;
       }
 
-      ProcessRunData.update(getConnection(), ctx.getUser(), executionStatus,
-          getDuration(jec.getJobRunTime()), bundle.getLog(), executionId);
+      final String finalStatus = executionStatus;
+      runWithReconnect("Updating process run", getProcessName(jec), runId,
+          () -> ProcessRunData.update(getConnection(), ctx.getUser(), finalStatus,
+              getDuration(jec.getJobRunTime()), bundle.getLog(), runId));
 
       if (bundle.getGroupInfo() != null) {
         // Manage Process Group
-        manageGroup(bundle, (jee == null ? SUCCESS : ERROR), executionId);
+        manageGroup(bundle, (jee == null ? SUCCESS : ERROR), executionId, getProcessName(jec));
       }
 
     } catch (Exception e) {
-      log.error(e.getMessage(), e);
+      log.error("Error finishing process {} (execution {}): {}", getProcessName(jec),
+          executionId, e.getMessage(), e);
     } finally {
       // return connection to pool and remove it from current thread
       SessionInfo.init();
@@ -200,6 +214,7 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
     final ProcessBundle bundle = ProcessBundle.mapToObject((Map<String, Object>) trigger.getJobDataMap().get(ProcessBundle.KEY));
     String updatedBy = bundle != null ? bundle.getContext().getUser() : "0";
     try {
+      SessionInfo.discardSessionConnectionIfInvalid(CONNECTION_VALIDATION_TIMEOUT_SECONDS);
       ProcessRequestData.update(getConnection(), COMPLETE, updatedBy, trigger.getKey().getName());
 
     } catch (final ServletException e) {
@@ -217,11 +232,12 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
 
   @Override
   public void triggerMisfired(Trigger trigger) {
+    String executionId = null;
     try {
       log.debug("Misfired process {}, start time {}.",
           trigger.getJobDataMap().getString(Process.PROCESS_NAME), trigger.getStartTime());
 
-      final String executionId = SequenceIdData.getUUID();
+      executionId = SequenceIdData.getUUID();
       ProcessBundle bundle = ProcessBundle.mapToObject((Map<String, Object>) trigger.getJobDataMap().get(ProcessBundle.KEY));
       ProcessContext ctx = bundle.getContext();
 
@@ -229,10 +245,12 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
           ctx.getUser(), executionId, Process.MISFIRED, null, null, bundle.getProcessRequestId(),
           null);
     } catch (Exception e) {
-      // ignore: exception while trying to log
+      log.warn("Could not register misfire of process {} (execution {})", getProcessName(trigger),
+          executionId, e);
+    } finally {
+      // return connection to pool and remove it from current thread
+      SessionInfo.init();
     }
-
-    // Not implemented
   }
 
   @Override
@@ -401,7 +419,9 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
   }
 
   private void stopConcurrency(Trigger trigger, JobExecutionContext jec, String processName) {
+    String executionId = null;
     try {
+      SessionInfo.discardSessionConnectionIfInvalid(CONNECTION_VALIDATION_TIMEOUT_SECONDS);
       final ProcessBundle bundle = ProcessBundle.mapToObject((Map<String, Object>) jec.getMergedJobDataMap().get(ProcessBundle.KEY));
       if (!trigger.mayFireAgain()) {
         String updatedBy = bundle != null ? bundle.getContext().getUser() : "0";
@@ -412,7 +432,7 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
       // Create a process run as error
       if (bundle != null) {
         final ProcessContext ctx = bundle.getContext();
-        final String executionId = SequenceIdData.getUUID();
+        executionId = SequenceIdData.getUUID();
         ProcessRunData.insert(getConnection(), ctx.getOrganization(), ctx.getClient(),
             ctx.getUser(), ctx.getUser(), executionId, PROCESSING, null, null,
             trigger.getKey().getName(), jec.getScheduler().getSchedulerInstanceId());
@@ -421,13 +441,14 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
 
         if (bundle.getGroupInfo() != null) {
           // Manage Process Group
-          manageGroup(bundle, Process.ERROR, executionId);
+          manageGroup(bundle, Process.ERROR, executionId, processName);
         }
       }
 
     } catch (Exception e) {
-      log.error("Error updating context for non executed process due to concurrency {}",
-          processName, e);
+      log.error(
+          "Error updating context for non executed process due to concurrency {} (execution {})",
+          processName, executionId, e);
     } finally {
       // return connection to pool and remove it from current thread only in case the process is
       // not going to be executed because of concurrency, other case leave the connection to be
@@ -534,22 +555,57 @@ class ProcessMonitor implements SchedulerListener, JobListener, TriggerListener 
    *          the status of the execution Process.SUCCESS or Process.ERROR
    * @param executionId
    *          the AD_ProcessRun_ID if needed to update the Process Run info
+   * @param processName
+   *          the name of the process, used in the logs
    * @throws Exception
    */
-  private void manageGroup(ProcessBundle bundle, String status, String executionId)
+  private void manageGroup(ProcessBundle bundle, String status, String executionId,
+      String processName)
       throws Exception {
     GroupInfo groupInfo = bundle.getGroupInfo();
     groupInfo.logProcess(status);
-    ProcessRunData.updateGroup(getConnection(), groupInfo.getProcessRun().getId(), executionId);
+    runWithReconnect("Updating process group run", processName, executionId, () -> ProcessRunData
+        .updateGroup(getConnection(), groupInfo.getProcessRun().getId(), executionId));
 
     // Execute next process
     String result = groupInfo.executeNextProcess();
     if (result.equals(GroupInfo.END)) {
       // End of process group execution
-      ProcessRunData.update(getConnection(), bundle.getContext().getUser(), groupInfo.getStatus(),
-          getDuration(groupInfo.getDuration()), groupInfo.getLog(),
-          groupInfo.getProcessRun().getId());
+      runWithReconnect("Closing process group run", processName, executionId,
+          () -> ProcessRunData.update(getConnection(), bundle.getContext().getUser(),
+              groupInfo.getStatus(), getDuration(groupInfo.getDuration()), groupInfo.getLog(),
+              groupInfo.getProcessRun().getId()));
     }
 
+  }
+
+  private String getProcessName(JobExecutionContext jec) {
+    return jec.getTrigger() == null ? null : getProcessName(jec.getTrigger());
+  }
+
+  private String getProcessName(Trigger trigger) {
+    try {
+      return trigger.getJobDataMap().getString(Process.PROCESS_NAME);
+    } catch (Exception e) {
+      // ignore: only used for logging, must never throw
+      return null;
+    }
+  }
+
+  /**
+   * Runs the action and, if it fails, discards the thread-bound connection (keeping the rest of the
+   * session/audit information of the thread) and retries it exactly once, so a new validated
+   * connection is taken from the pool. A second failure is propagated.
+   */
+  private void runWithReconnect(String what, String processName, String executionId,
+      DbAction action) throws ServletException {
+    try {
+      action.run();
+    } catch (ServletException e) {
+      log.warn("{} failed for process {} (execution {}), retrying once with a new connection: {}",
+          what, processName, executionId, e.getMessage());
+      SessionInfo.discardSessionConnection();
+      action.run();
+    }
   }
 }

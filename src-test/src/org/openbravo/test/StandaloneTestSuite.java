@@ -40,7 +40,9 @@ import org.openbravo.client.application.test.event.PersistanceObserver;
 import org.openbravo.client.kernel.CSSMinifier;
 import org.openbravo.client.kernel.KernelUtilsIntegrationTest;
 import org.openbravo.client.application.report.ReportingUtilsIntegrationTest;
+import org.openbravo.database.SessionInfoTest;
 import org.openbravo.service.json.DefaultJsonDataServiceIntegrationTest;
+import org.openbravo.service.json.DefaultJsonDataServiceLoggingTest;
 import org.openbravo.erpCommon.utility.DimensionDisplayUtilityIntegrationTest;
 import org.openbravo.erpCommon.utility.OBCurrencyUtilsIntegrationTest;
 import org.openbravo.email.ResolvedSmtpConfigTest;
@@ -464,6 +466,7 @@ import org.openbravo.userinterface.selectors.test.ExpressionsTest;
     GroupInfoTest.class, //
     JobDetailProviderTest.class, //
     ProcessMonitorTest.class, //
+    SessionInfoTest.class, //
     OBSchedulerTest.class, //
 
     // ReportTaxPaymentJR
@@ -493,6 +496,7 @@ import org.openbravo.userinterface.selectors.test.ExpressionsTest;
     KernelUtilsIntegrationTest.class,
     ReportingUtilsIntegrationTest.class,
     DefaultJsonDataServiceIntegrationTest.class,
+    DefaultJsonDataServiceLoggingTest.class,
 
     // Email
     BPContactEmailSelectorTest.class,

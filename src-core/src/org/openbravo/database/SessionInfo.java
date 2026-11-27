@@ -89,17 +89,85 @@ public class SessionInfo {
     queryProfile.set(null);
     auditThisThread.set(true);
     // if there is an open connection associated to get current request, close it
+    unbindAndCloseSessionConnection();
+  }
+
+  private static void unbindAndCloseSessionConnection() {
     Connection conn = sessionConnection.get();
+    sessionConnection.set(null);
+    closeQuietly(conn);
+  }
+
+  /**
+   * Closes the connection bound to the current thread (if any) and unbinds it, without resetting
+   * the rest of the session information of the thread. The ThreadLocal is always cleared, even if
+   * closing the connection fails.
+   */
+  public static void discardSessionConnection() {
+    unbindAndCloseSessionConnection();
+    // the next connection bound to this thread must get the context info (audit user) saved
+    changedInfo.set(true);
+  }
+
+  /**
+   * Discards the connection bound to the current thread if it is closed or not valid anymore (see
+   * {@link Connection#isValid(int)}). The rest of the session information of the thread is kept.
+   *
+   * @param timeoutSeconds
+   *          seconds to wait for the validation
+   * @return true if a connection was discarded
+   */
+  public static boolean discardSessionConnectionIfInvalid(int timeoutSeconds) {
+    Connection conn = sessionConnection.get();
+    if (conn == null) {
+      return false;
+    }
+    boolean valid;
     try {
-      if (conn != null && !conn.isClosed()) {
-        log4j.debug("Close session's connection");
-        conn.setAutoCommit(true);
-        conn.close();
+      valid = !conn.isClosed() && conn.isValid(timeoutSeconds);
+    } catch (SQLException e) {
+      log4j.debug("Error validating session connection", e);
+      valid = false;
+    }
+    if (valid) {
+      return false;
+    }
+    log4j.warn("Discarding invalid session connection bound to thread {}",
+        Thread.currentThread().getName());
+    discardSessionConnection();
+    return true;
+  }
+
+  private static void closeQuietly(Connection conn) {
+    if (conn == null) {
+      return;
+    }
+    try {
+      if (conn.isClosed()) {
+        return;
       }
     } catch (SQLException e) {
-      log4j.error("Error closing sessionConnection", e);
+      // considered broken, still try to close it
+      log4j.debug("isClosed failure", e);
     }
-    sessionConnection.set(null);
+    log4j.debug("Close session's connection");
+    try {
+      conn.setAutoCommit(true);
+    } catch (SQLException e) {
+      log4j.warn("Could not reset autocommit on session connection: {}", e.getMessage());
+      log4j.debug("setAutoCommit failure", e);
+    } finally {
+      closeConnection(conn);
+    }
+  }
+
+  private static void closeConnection(Connection conn) {
+    try {
+      conn.close();
+    } catch (SQLException e) {
+      log4j.warn("Could not close session connection: {}", e.getMessage());
+      log4j.debug("close failure", e);
+    }
   }
 
   /**
