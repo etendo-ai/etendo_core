@@ -6,8 +6,9 @@ Every numeric column of every suite CSV becomes a gauge named etendo.stress.<sui
 tagged with the row's level and flow (or onboarding mode) and with the run's context:
 stress_run (STRESS_RUN), git_sha (STRESS_SHA), git_ref (STRESS_REF) and DD_TAGS (comma-separated, optional).
 
-Rows that cross a limit also become Datadog events, tagged etendo_stress_finding, so the
-findings stay in Datadog and never in the repository or the run log:
+Rows that cross a limit also become findings: a gauge etendo.stress.finding = 1 tagged with the
+row's tags plus kind (latency, errors, incomplete, onboarding_failed) and column, so the findings
+stay in Datadog and never in the repository or the run log:
 
     any *p95* column above STRESS_P95_LIMIT_MS (default 5000, the ALB critical threshold)
     err_pct above STRESS_ERROR_LIMIT_PCT (default 0.1)
@@ -61,19 +62,25 @@ def series(suite, row):
 
 
 def findings(suite, row):
-    where = " ".join(f"{c}={row[c]}" for c in TAG_COLUMNS if row.get(c))
+    """(kind, column) of every limit the row crosses."""
     found = []
     for column, value in row.items():
         v = number(value)
         if v is not None and "p95" in column and v > P95_LIMIT:
-            found.append(f"{suite} {where}: {column} {v:.0f} ms is above {P95_LIMIT:.0f} ms")
+            found.append(("latency", column))
     err = number(row.get("err_pct"))
     if err is not None and err > ERROR_LIMIT:
-        found.append(f"{suite} {where}: error rate {err:.1f}% is above {ERROR_LIMIT}%")
+        found.append(("errors", "err_pct"))
     done = number(row.get("completed_pct"))
     if done is not None and done < 100:
-        found.append(f"{suite} {where}: only {done:.0f}% of the journeys completed")
+        found.append(("incomplete", "completed_pct"))
     return found
+
+
+def finding_series(suite, row, kind, column):
+    tags = BASE_TAGS + [f"suite:{suite}", f"kind:{kind}", f"column:{column}"]
+    tags += [f"{c}:{row[c]}" for c in TAG_COLUMNS if row.get(c) not in (None, "")]
+    return {"metric": "etendo.stress.finding", "type": 3, "points": [{"timestamp": NOW, "value": 1}], "tags": tags}
 
 
 def onboarding(suite, rows):
@@ -86,8 +93,7 @@ def onboarding(suite, rows):
                "onboarding_median_ms": statistics.median(times) if times else 0,
                "onboarding_max_ms": max(times, default=0),
                "register_median_ms": statistics.median(registers) if registers else 0}
-    failed = [f"{suite} mode={summary['mode']}: onboarding {r.get('label')} failed: {r.get('error', '')[:120]}"
-              for r in rows if r.get("ok") != "True"]
+    failed = sum(1 for r in rows if r.get("ok") != "True")
     return summary, failed
 
 
@@ -109,11 +115,11 @@ def main():
         if suite.startswith("onboarding_"):
             summary, failed = onboarding(suite, rows)
             all_series += series("onboarding", summary)
-            all_findings += failed
+            all_findings += [finding_series("onboarding", summary, "onboarding_failed", "ok")] * bool(failed)
             continue
         for row in rows:
             all_series += series(suite, row)
-            all_findings += findings(suite, row)
+            all_findings += [finding_series(suite, row, kind, column) for kind, column in findings(suite, row)]
 
     print(f"{len(all_series)} series, {len(all_findings)} findings")
     if not API_KEY:
@@ -121,11 +127,9 @@ def main():
         for s in all_series[:5]:
             print("  ", s["metric"], s["points"][0]["value"], s["tags"])
         return
-    for i in range(0, len(all_series), 500):
-        post("/api/v2/series", {"series": all_series[i:i + 500]})
-    for text in all_findings:
-        post("/api/v1/events", {"title": "Etendo GO stress finding", "text": text, "alert_type": "warning",
-                                "tags": BASE_TAGS + ["etendo_stress_finding"]})
+    everything = all_series + all_findings
+    for i in range(0, len(everything), 500):
+        post("/api/v2/series", {"series": everything[i:i + 500]})
     # Only counts go to the log: the findings themselves stay in Datadog.
     print(f"sent to Datadog ({SITE})")
 
