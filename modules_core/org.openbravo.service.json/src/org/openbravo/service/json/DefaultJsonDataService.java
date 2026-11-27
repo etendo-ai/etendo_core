@@ -21,6 +21,7 @@ package org.openbravo.service.json;
 import static java.util.stream.Collectors.toList;
 import static org.openbravo.userinterface.selector.SelectorConstants.includeOrgFilter;
 
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -84,6 +85,9 @@ public class DefaultJsonDataService implements JsonDataService {
   private static final Logger log = LogManager.getLogger();
 
   private static final String ADD_FLAG = "_doingAdd";
+  private static final String SAVE_ERROR_DETAILS = " (entity: {}, tabId: {}, windowId: {}): {}: {}";
+  private static final String ADD_ERROR_FORMAT = "Error adding new object" + SAVE_ERROR_DETAILS;
+  private static final String UPDATE_ERROR_FORMAT = "Error updating object" + SAVE_ERROR_DETAILS;
   private static final int DEFAULT_ID_LENGTH = 32;
 
   @Inject
@@ -1157,16 +1161,37 @@ public class DefaultJsonDataService implements JsonDataService {
       Throwable localThrowable = DbUtility.getUnderlyingSQLException(t);
       if (!(localThrowable instanceof OBException
           && !((OBException) localThrowable).isLogExceptionNeeded())) {
-        if (parameters.containsKey(ADD_FLAG)) {
-          log.error("Error adding new object", localThrowable);
-        } else {
-          log.error("Error updating object", localThrowable);
-        }
+        logSaveError(parameters.containsKey(ADD_FLAG) ? ADD_ERROR_FORMAT : UPDATE_ERROR_FORMAT,
+            parameters, localThrowable);
       }
       return JsonUtils.convertExceptionToJson(localThrowable);
     } finally {
       OBContext.restorePreviousCrossOrgReferenceMode();
     }
+  }
+
+  private static void logSaveError(String format, Map<String, String> parameters, Throwable t) {
+    log.error(format,
+        parameters.get(JsonConstants.ENTITYNAME), parameters.get(JsonConstants.TAB_PARAMETER),
+        parameters.get(JsonConstants.WINDOW_ID), t.getClass().getName(), getLoggableMessage(t), t);
+  }
+
+  /**
+   * Returns the message of the throwable to be included in the log text. JSON parsing exceptions
+   * echo the parsed request content in their message, so it is omitted for them. For SQL exceptions
+   * only the first line is kept, as the following lines (like the PostgreSQL "Detail" line) can
+   * contain the values of the failing row. The attached throwable still carries the full detail.
+   */
+  private static String getLoggableMessage(Throwable t) {
+    if (t instanceof JSONException) {
+      return "invalid JSON content";
+    }
+    String message = t.getMessage();
+    if (t instanceof SQLException && message != null) {
+      int lineEnd = message.indexOf('\n');
+      return lineEnd < 0 ? message : message.substring(0, lineEnd);
+    }
+    return message;
   }
 
   private Object getContentAsJSON(String content) throws JSONException {
