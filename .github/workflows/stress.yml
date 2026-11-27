@@ -1,0 +1,117 @@
+name: Etendo GO stress
+
+# ETP-6476: the Etendo GO stress suites (pipelines/stress) on a fresh environment, every weekend
+# and on demand. Builds the same environment as com.etendoerp.go's full pipeline (its etendo-env
+# action: PostgreSQL, install, GOClient sample data, Tomcat), runs the suites against it and sends
+# the measurements and the findings to Datadog. The repository is public, so neither the suite
+# output nor the results are printed or uploaded: they only reach Datadog.
+#
+# Secrets: ETENDOBOT_TOKEN, BITBUCKET_SSH_KEY, LOCALENV_CACHE_RO_KEY, LOCALENV_CACHE_RO_SECRET
+# (building the environment, as in the go pipeline) and DD_API_KEY (Datadog, EU site).
+
+on:
+  schedule:
+    # Saturday 03:00 UTC: the results are in Datadog on Monday.
+    - cron: '0 3 * * 6'
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: Comma-separated suites (read, write, confirm, onboarding, master, journey)
+        default: read,write,confirm,onboarding,master,journey
+      core_ref:
+        description: etendo_core branch to build
+        default: epic/ETP-3504
+      go_ref:
+        description: com.etendoerp.go branch to build
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: etendo-go-stress
+  cancel-in-progress: false
+
+env:
+  # GO still lives on epic/ETP-3504 of etendo_core: switch to main once that branch is merged.
+  CORE_BRANCH: ${{ inputs.core_ref || 'epic/ETP-3504' }}
+  GO_BRANCH: ${{ inputs.go_ref || 'main' }}
+
+jobs:
+  stress:
+    name: Stress suites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout the stress suites
+        uses: actions/checkout@v4
+        with:
+          path: stress-src
+          sparse-checkout: pipelines/stress
+
+      - name: Checkout etendo_core
+        uses: actions/checkout@v4
+        with:
+          repository: etendo-ai/etendo_core
+          token: ${{ secrets.ETENDOBOT_TOKEN }}
+          ref: ${{ env.CORE_BRANCH }}
+          path: etendo_core
+
+      - name: Checkout com.etendoerp.go
+        uses: actions/checkout@v4
+        with:
+          repository: etendo-ai/com.etendoerp.go
+          token: ${{ secrets.ETENDOBOT_TOKEN }}
+          ref: ${{ env.GO_BRANCH }}
+          path: etendo_core/modules/com.etendoerp.go
+
+      - name: Build the Etendo GO environment
+        uses: ./etendo_core/modules/com.etendoerp.go/.github/actions/etendo-env
+        with:
+          etendobot_token: ${{ secrets.ETENDOBOT_TOKEN }}
+          bitbucket_ssh_key: ${{ secrets.BITBUCKET_SSH_KEY }}
+          core_branch: ${{ env.CORE_BRANCH }}
+          module_branch: ${{ env.GO_BRANCH }}
+          localenv_s3_key: ${{ secrets.LOCALENV_CACHE_RO_KEY }}
+          localenv_s3_secret: ${{ secrets.LOCALENV_CACHE_RO_SECRET }}
+
+      - name: Start Tomcat
+        working-directory: etendo_core
+        env:
+          LE: ${{ github.workspace }}/etendo-localenv/bin/local-env.sh
+          LOCALENV_CACHE: ${{ runner.temp }}/localenv-cache
+          LOCALENV_UPDATE_CHECK_SECS: '0'
+        run: |
+          "$LE" start --tomcat
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8080/etendo >/dev/null && exit 0
+            sleep 5
+          done
+          echo "::error::Etendo did not answer on http://localhost:8080/etendo"
+          exit 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the suite dependencies
+        run: pip install --quiet -r stress-src/pipelines/stress/requirements.txt
+
+      - name: Run the stress suites
+        env:
+          STRESS_BASE: http://localhost:8080/etendo
+          STRESS_OUT: ${{ runner.temp }}/stress-results
+          STRESS_SUITES: ${{ inputs.suites || 'read,write,confirm,onboarding,master,journey' }}
+        run: bash stress-src/pipelines/stress/run.sh
+
+      - name: Send the results to Datadog
+        if: ${{ !cancelled() }}
+        working-directory: etendo_core/modules/com.etendoerp.go
+        env:
+          STRESS_OUT: ${{ runner.temp }}/stress-results
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: datadoghq.eu
+          STRESS_RUN: ${{ github.run_id }}
+          STRESS_REF: ${{ env.GO_BRANCH }}
+          DD_TAGS: env:ci,trigger:${{ github.event_name }},core_ref:${{ env.CORE_BRANCH }}
+        run: STRESS_SHA="$(git rev-parse HEAD)" python3 "$GITHUB_WORKSPACE/stress-src/pipelines/stress/report_datadog.py"
