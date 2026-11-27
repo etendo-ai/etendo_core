@@ -14,7 +14,7 @@ from collections import defaultdict
 
 import aiohttp
 
-from common import BASE, EMAIL, get_jwt, levels, pct, write_csv
+from common import BASE, EMAIL, get_jwt, levels, note_errors, pct, write_csv, write_errors
 
 LEVELS = levels("STRESS_LEVELS", "1,5,10,20")
 
@@ -78,6 +78,7 @@ async def load_reads(jwt):
 
         print(f"{n:>3} users: {total} reqs, err {err:.1f}%, {throughput:.1f} req/s, "
               f"p50 {pct(durations, 0.5):.0f}ms, p95 {pct(durations, 0.95):.0f}ms")
+        note_errors("", n, [f"{name} [{status}]" for name, status, _ in records if not 200 <= status < 300])
         by_op = defaultdict(list)
         for name, _, d in records:
             by_op[name].append(d)
@@ -85,6 +86,7 @@ async def load_reads(jwt):
             print(f"      {name:<30} p50 {pct(ds, 0.5):.0f}ms  p95 {pct(ds, 0.95):.0f}ms")
 
     write_csv("read", ["level", "reqs", "err_pct", "throughput_rps", "p50_ms", "p95_ms", "p99_ms", "max_ms"], rows)
+    write_errors("read")
 
 
 async def main():

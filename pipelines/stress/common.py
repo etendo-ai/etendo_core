@@ -8,13 +8,15 @@ Every suite reads its target and credentials from the environment:
     STRESS_PASSWORD  its password
     STRESS_OUT       directory for the result CSVs (default: the current directory)
 
-and writes one CSV per suite, which report_datadog.py turns into metrics.
+and writes one CSV per suite, which report_datadog.py turns into metrics, plus <suite>_errors.csv
+with the most frequent error messages of each level, which it sends to Datadog Logs.
 """
 import csv
 import datetime
 import json
 import os
 import time
+from collections import Counter
 
 import aiohttp
 
@@ -126,8 +128,9 @@ def caller(jwt, timeout=40):
                                        timeout=aiohttp.ClientTimeout(total=timeout)) as r:
                 payload = await r.json(content_type=None) if method != "DELETE" else {}
                 return r.status, payload or {}, (time.monotonic() - t0) * 1000
-        except Exception:
-            return 0, {}, (time.monotonic() - t0) * 1000
+        except Exception as e:
+            # Status 0: no HTTP answer (a timeout or a dropped connection).
+            return 0, {"error": {"message": f"{type(e).__name__} {e}".strip()}}, (time.monotonic() - t0) * 1000
     return call
 
 
@@ -152,3 +155,17 @@ def write_csv(name, header, rows):
         writer.writerows(rows)
     print(f"\n  -> {path} ({len(rows)} rows)")
     return path
+
+
+ERRORS = []
+
+
+def note_errors(flow, level, messages):
+    """Keep the three most frequent error messages of a level for write_errors()."""
+    for message, count in Counter(messages).most_common(3):
+        ERRORS.append([flow, level, count, message])
+
+
+def write_errors(name):
+    """Write the noted error messages to <STRESS_OUT>/<name>_errors.csv."""
+    return write_csv(f"{name}_errors", ["flow", "level", "count", "message"], ERRORS)

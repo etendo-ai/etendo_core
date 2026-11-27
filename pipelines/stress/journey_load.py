@@ -20,7 +20,8 @@ from collections import Counter, defaultdict
 
 import aiohttp
 
-from common import BASE, TODAY, caller, drop_rejected, error_message, get_jwt, levels, pct, write_csv
+from common import (BASE, TODAY, caller, drop_rejected, error_message, get_jwt, levels, note_errors, pct, write_csv,
+                    write_errors)
 
 LEVELS = levels("STRESS_LEVELS", "5,10,20,40")
 
@@ -135,6 +136,7 @@ async def main():
         for name in STEPS:
             if steps[name]:
                 print(f"      {name:<8} p95 {pct(steps[name], 0.95):6.0f}ms  (n={len(steps[name])})")
+        note_errors("", n, [f"{nm} [{st}] {m}" for nm, st, m in errors])
         for message, count in Counter(f"{nm} [{st}] {m}" for nm, st, m in errors).most_common(3):
             print(f"      {count}x {message}")
         rows.append([n, len(completed), round(done_pct), round(per_second, 1)]
@@ -142,6 +144,7 @@ async def main():
 
     write_csv("journey", ["level", "completed", "completed_pct", "journeys_s"] + [f"{name}_p95" for name in STEPS],
               rows)
+    write_errors("journey")
 
 
 if __name__ == "__main__":

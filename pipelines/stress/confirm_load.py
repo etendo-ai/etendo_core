@@ -19,8 +19,8 @@ from collections import Counter
 
 import aiohttp
 
-from common import (BASE, ORDERS, caller, drop_rejected, error_message, get_jwt, levels, new_id, order_line, pct,
-                    write_csv)
+from common import (BASE, ORDERS, caller, drop_rejected, error_message, get_jwt, levels, new_id, note_errors,
+                    order_line, pct, write_csv, write_errors)
 
 LEVELS = levels("CONFIRM_LEVELS", "10,25,50,75")
 FLOWS = os.environ.get("CONFIRM_FLOWS", "sales,purchases").split(",")
@@ -73,11 +73,13 @@ async def main():
                          round(pct(durations, 0.5)), round(pct(durations, 0.95)), round(pct(durations, 0.99))])
             print(f"{flow:<10} {n:>3} orders: {len(ids) - len(errors)} confirmed, err {err:4.0f}%, "
                   f"{throughput:5.1f} conf/s, p50 {pct(durations, 0.5):5.0f}ms, p95 {pct(durations, 0.95):6.0f}ms")
+            note_errors(flow, n, [f"[{st}] {m}" for st, m in errors])
             for message, count in Counter(f"[{st}] {m}" for st, m in errors).most_common(1):
                 print(f"           {count}x {message}")
 
     write_csv("confirm", ["flow", "level", "confirmed", "err_pct", "throughput_conf_s", "p50_ms", "p95_ms", "p99_ms"],
               rows)
+    write_errors("confirm")
 
 
 if __name__ == "__main__":

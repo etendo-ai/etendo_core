@@ -15,6 +15,10 @@ stay in Datadog and never in the repository or the run log:
     a journey level that did not complete every journey
     an onboarding that failed
 
+The error messages each suite kept (<suite>_errors.csv, and the error column of the onboarding
+CSVs) go to Datadog Logs with the same tags (service etendo-go-stress), so a finding can be traced to
+its cause. A failure to send them is reported but does not fail the step: the metrics already went.
+
 Needs DD_API_KEY; DD_SITE defaults to datadoghq.eu. Without the key it only prints what it
 would send.
 """
@@ -25,6 +29,7 @@ import os
 import statistics
 import sys
 import time
+import urllib.error
 import urllib.request
 
 OUT = os.environ.get("STRESS_OUT", ".")
@@ -97,22 +102,37 @@ def onboarding(suite, rows):
     return summary, failed
 
 
-def post(path, body):
-    request = urllib.request.Request(f"https://api.{SITE}{path}", data=json.dumps(body).encode(), method="POST",
+def error_logs(suite, rows):
+    """Datadog log entries for the error messages a suite kept."""
+    logs = []
+    for row in rows:
+        tags = BASE_TAGS + [f"suite:{suite}"] + [f"{c}:{row[c]}" for c in TAG_COLUMNS if row.get(c) not in (None, "")]
+        logs.append({"ddsource": "etendo-stress", "service": "etendo-go-stress", "hostname": "github-actions",
+                     "ddtags": ",".join(tags), "message": row.get("message") or row.get("error", ""),
+                     "count": number(row.get("count")) or 1, "status": "error"})
+    return logs
+
+
+def post(path, body, host=None):
+    request = urllib.request.Request(f"https://{host or 'api.' + SITE}{path}", data=json.dumps(body).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "DD-API-KEY": API_KEY})
     with urllib.request.urlopen(request, timeout=30) as response:
         return response.status
 
 
 def main():
-    all_series, all_findings = [], []
+    all_series, all_findings, all_logs = [], [], []
     for path in sorted(glob.glob(os.path.join(OUT, "*.csv"))):
         suite = os.path.splitext(os.path.basename(path))[0]
         with open(path, newline="") as f:
             rows = list(csv.DictReader(f))
         if not rows:
             continue
+        if suite.endswith("_errors"):
+            all_logs += error_logs(suite[:-len("_errors")], rows)
+            continue
         if suite.startswith("onboarding_"):
+            all_logs += error_logs("onboarding", [r for r in rows if r.get("ok") != "True"])
             summary, failed = onboarding(suite, rows)
             all_series += series("onboarding", summary)
             all_findings += [finding_series("onboarding", summary, "onboarding_failed", "ok")] * bool(failed)
@@ -121,7 +141,7 @@ def main():
             all_series += series(suite, row)
             all_findings += [finding_series(suite, row, kind, column) for kind, column in findings(suite, row)]
 
-    print(f"{len(all_series)} series, {len(all_findings)} findings")
+    print(f"{len(all_series)} series, {len(all_findings)} findings, {len(all_logs)} error logs")
     if not API_KEY:
         print("DD_API_KEY is not set: nothing sent")
         for s in all_series[:5]:
@@ -130,8 +150,14 @@ def main():
     everything = all_series + all_findings
     for i in range(0, len(everything), 500):
         post("/api/v2/series", {"series": everything[i:i + 500]})
-    # Only counts go to the log: the findings themselves stay in Datadog.
-    print(f"sent to Datadog ({SITE})")
+    print(f"metrics sent to Datadog ({SITE})")
+    # Only counts go to the log: the messages themselves stay in Datadog.
+    try:
+        for i in range(0, len(all_logs), 500):
+            post("/api/v2/logs", all_logs[i:i + 500], host=f"http-intake.logs.{SITE}")
+        print(f"{len(all_logs)} error logs sent")
+    except urllib.error.HTTPError as e:
+        print(f"::warning::Datadog Logs refused the error messages (HTTP {e.code})")
 
 
 if __name__ == "__main__":

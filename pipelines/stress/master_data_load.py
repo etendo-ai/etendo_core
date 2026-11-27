@@ -16,7 +16,8 @@ from collections import Counter
 
 import aiohttp
 
-from common import BASE, EMAIL, caller, drop_rejected, error_message, get_jwt, levels, new_id, pct, write_csv
+from common import (BASE, EMAIL, caller, drop_rejected, error_message, get_jwt, levels, new_id, note_errors, pct,
+                    write_csv, write_errors)
 
 LEVELS = levels("STRESS_LEVELS", "50,100,150,200")
 FLOWS = os.environ.get("STRESS_FLOWS", "contacts,products").split(",")
@@ -76,11 +77,13 @@ async def main():
                          round(pct(creates, 0.5)), round(pct(creates, 0.95)), round(pct(creates, 0.99))])
             print(f"{flow:<9} {n:>3} users: {throughput:6.1f} ops/s, err {err:4.1f}%, "
                   f"create p50 {pct(creates, 0.5):5.0f}ms, p95 {pct(creates, 0.95):6.0f}ms")
+            note_errors(flow, n, [f"[{st}] {m}" for st, m in errors])
             for message, count in Counter(f"[{st}] {m}" for st, m in errors).most_common(1):
                 print(f"          {count}x {message}")
 
     write_csv("master_data", ["flow", "level", "ops", "err_pct", "throughput_ops_s", "p50_ms", "p95_ms", "p99_ms"],
               rows)
+    write_errors("master_data")
 
 
 if __name__ == "__main__":
