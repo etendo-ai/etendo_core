@@ -55,9 +55,19 @@ list="modules/com.etendoerp.go/jenkinsExtraModules.txt"
 mapfile -t urls < <(tr ',' '\n' < "$list" | sed 's/[[:space:]]//g' | grep -v '^$')
 echo "Módulos en $list: ${#urls[@]}"
 
+declare -A fixed_branch=()
+branches_file="modules/com.etendoerp.go/jenkinsExtraModulesBranches.txt"
+if [ -f "$branches_file" ]; then
+  while IFS='=' read -r mod br; do
+    mod="${mod//[[:space:]]/}"
+    br="${br//[[:space:]]/}"
+    [ -n "$mod" ] && [ -n "$br" ] && [[ "$mod" != \#* ]] && fixed_branch["$mod"]="$br"
+  done < "$branches_file"
+fi
+
 failed=0
 for url in "${urls[@]}"; do
-  clone "$url" || failed=1
+  clone "$url" "${fixed_branch[$(basename "$url" .git)]:-}" || failed=1
 done
 
 exit "$failed"
