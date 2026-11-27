@@ -75,6 +75,7 @@ import org.junit.platform.suite.api.Suite;
     org.openbravo.erpCommon.ad_callouts.CalloutHelperTest.class,
     org.openbravo.erpCommon.ad_callouts.EmailConfiguration_PortTest.class,
     org.openbravo.erpCommon.ad_callouts.GtinFormatTest.class,
+    org.openbravo.erpCommon.ad_callouts.SE_Payment_MultiCurrencyTest.class,
     org.openbravo.erpCommon.ad_forms.AccountTest.class,
     org.openbravo.erpCommon.ad_forms.AcctSchemaElementTest.class,
     org.openbravo.erpCommon.ad_forms.AcctSchemaTest.class,

@@ -749,3 +749,5 @@ REVISAR;org.openbravo.test.security.CSRFAttackTest;Seguridad de endpoints clasic
 REVISAR;org.openbravo.test.security.ExplicitCrossOrganizationReference;Seguridad de endpoints clasicos via HTTP+Tomcat: Etendo no los usa, pero siguen desplegados en el mismo WAR
 REVISAR;org.openbravo.test.security.UserInfoSessionDataTest;Seguridad de endpoints clasicos via HTTP+Tomcat: Etendo no los usa, pero siguen desplegados en el mismo WAR
 REVISAR;com.etendoerp.advpaymentmngt.actionHandler.PaymentExecutionProcessActionHandlerTest;Ejecucion de pagos: 'Execute Payment' figura en contract.json de payment-in/out y hay modulos SEPA instalados (org.openbravo.sepa.iso20022.*), pero Etendo no importa ninguna clase de ejecucion
+MANTENER;org.openbravo.advpaymentmngt.test.PaymentScheduleDetailOrgTest;Test nuevo del hotfix #1172 (organizacion del PSD al dividir y vincular pagos), llega desde develop
+MANTENER;org.openbravo.erpCommon.ad_callouts.SE_Payment_MultiCurrencyTest;Test nuevo del hotfix #1178 (importe x100 del deposito en formato EU), llega desde develop

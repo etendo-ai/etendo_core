@@ -171,6 +171,7 @@ import org.junit.platform.suite.api.Suite;
     org.openbravo.advpaymentmngt.test.PaymentTest_06.class,
     org.openbravo.advpaymentmngt.test.PaymentTest_11.class,
     org.openbravo.advpaymentmngt.test.ReversePaymentTest.class,
+    org.openbravo.advpaymentmngt.test.PaymentScheduleDetailOrgTest.class,
     org.openbravo.advpaymentmngt.test.FinancialAccountTest.class,
     org.openbravo.advpaymentmngt.test.PaymentMethodTest.class,
     org.openbravo.advpaymentmngt.process.FINPaymentMonitorProcessQueryTest.class,
